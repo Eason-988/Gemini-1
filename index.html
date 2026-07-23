@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stockfish 18 Chess App</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2b2b2b">
+
+  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: #1e1e1e; color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    header { background: #2d2d2d; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #404040; }
+    .main-container { display: flex; flex: 1; height: calc(100vh - 50px); overflow: hidden; }
+    .board-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; position: relative; }
+    #board-wrapper { position: relative; width: 560px; height: 560px; }
+    #board { width: 100%; height: 100%; }
+    #svg-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+    
+    .sidebar { width: 380px; background: #252526; border-left: 1px solid #404040; display: flex; flex-direction: column; padding: 15px; gap: 15px; }
+    .panel { background: #2d2d2d; padding: 12px; border-radius: 6px; border: 1px solid #3c3c3c; }
+    .panel h3 { font-size: 14px; text-transform: uppercase; color: #aaa; margin-bottom: 8px; letter-spacing: 0.5px; }
+    
+    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    button, select { background: #3c3c3c; color: white; border: 1px solid #555; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; }
+    button:hover, select:hover { background: #4a4a4a; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    .eval-bar-container { height: 12px; background: #404040; border-radius: 6px; overflow: hidden; margin-top: 6px; display: flex; }
+    .eval-bar-fill { background: #ffffff; height: 100%; width: 50%; transition: width 0.3s ease; }
+    .eval-text { font-size: 12px; font-weight: bold; margin-top: 4px; text-align: right; }
+    
+    .move-history { flex: 1; overflow-y: auto; max-height: 250px; background: #1e1e1e; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 13px; }
+    .move-row { display: flex; padding: 4px 0; border-bottom: 1px solid #2a2a2a; }
+    .move-num { width: 40px; color: #777; }
+    .move-ply { flex: 1; cursor: pointer; padding: 0 4px; border-radius: 2px; display: flex; justify-content: space-between; align-items: center; }
+    .move-ply:hover { background: #333; }
+    .move-ply.active { background: #04395e; color: #fff; }
+    
+    .badge { font-size: 10px; padding: 1px 4px; border-radius: 3px; font-weight: bold; color: #fff; }
+    .badge-brilliant { background: #1baca6; }
+    .badge-great { background: #5c8bb0; }
+    .badge-best { background: #96bc4b; }
+    .badge-excellent { background: #96bc4b; }
+    .badge-good { background: #84a94d; }
+    .badge-inaccuracy { background: #f0c15c; color: #000; }
+    .badge-mistake { background: #e6912c; }
+    .badge-blunder { background: #ca3431; }
+
+    .analysis-details { font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+    .arrow-legend { display: flex; gap: 10px; font-size: 11px; color: #aaa; margin-top: 5px; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h2>Stockfish 18 Web GUI</h2>
+    <div id="status">Status: Ready</div>
+  </header>
+
+  <div class="main-container">
+    <div class="board-container">
+      <div id="board-wrapper">
+        <div id="board"></div>
+        <svg id="svg-overlay"></svg>
+      </div>
+    </div>
+
+    <div class="sidebar">
+      <div class="panel">
+        <h3>Game Settings</h3>
+        <div class="controls" style="margin-bottom: 8px;">
+          <select id="player-color">
+            <option value="w">Play as White</option>
+            <option value="b">Play as Black</option>
+          </select>
+          <select id="engine-level">
+            <option value="0">Level 1 (Easy)</option>
+            <option value="5">Level 2</option>
+            <option value="10" selected>Level 3 (Medium)</option>
+            <option value="15">Level 4</option>
+            <option value="20">Level 5 (Max Engine)</option>
+          </select>
+        </div>
+        <div class="controls">
+          <button id="btn-new-game">New Game</button>
+          <button id="btn-analyze">Analyze Match</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Evaluation</h3>
+        <div class="eval-bar-container">
+          <div id="eval-fill" class="eval-bar-fill"></div>
+        </div>
+        <div id="eval-text" class="eval-text">0.00</div>
+      </div>
+
+      <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+        <h3>Moves</h3>
+        <div id="move-history" class="move-history"></div>
+        <div class="controls" style="margin-top: 8px;">
+          <button id="btn-first">&laquo;</button>
+          <button id="btn-prev">&lsaquo;</button>
+          <button id="btn-next">&rsaquo;</button>
+          <button id="btn-last">&raquo;</button>
+        </div>
+      </div>
+
+      <div class="panel" id="analysis-panel" style="display: none;">
+        <h3>Move Analysis</h3>
+        <div id="analysis-text" class="analysis-details">Select a move to see details.</div>
+        <div class="arrow-legend">
+          <span><span class="dot" style="background:#157811;"></span> Best Move</span>
+          <span><span class="dot" style="background:#d12323;"></span> Played Move</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Register Service Worker for PWA compliance
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW registration failed:', err));
+    }
+
+    // Initialize Game Variables
+    let board = null;
+    let game = new Chess();
+    let engine = null;
+    let historyStack = []; // Stores move history + evaluations
+    let currentTimelineIdx = -1;
+    let isAnalyzing = false;
+    let playerColor = 'w';
+
+    // Init Engine Web Worker
+    function initEngine() {
+      // Points directly to stockfish-18-single-lite JS wrapper
+      engine = new Worker('stockfish-18-single-lite.js');
+      engine.onmessage = handleEngineMessage;
+      engine.postMessage('uci');
+      engine.postMessage('isready');
+    }
+
+    function setEngineSkill(skillLevel) {
+      engine.postMessage(`setoption name Skill Level value ${skillLevel}`);
+    }
+
+    // UCI Message Handler
+    function handleEngineMessage(event) {
+      const line = event.data;
+
+      // Extract evaluation score
+      if (line.includes('score cp') || line.includes('score mate')) {
+        let evalVal = parseEval(line);
+        updateEvalDisplay(evalVal);
+      }
+
+      // Handle Best Move command from engine play
+      if (line.startsWith('bestmove') && !isAnalyzing) {
+        const moveStr = line.split(' ')[1];
+        if (moveStr && moveStr !== '(none)') {
+          const from = moveStr.substring(0, 2);
+          const to = moveStr.substring(2, 4);
+          const promo = moveStr.length > 4 ? moveStr.substring(4, 5) : undefined;
+          
+          makeMove({ from, to, promotion: promo });
+        }
+      }
+    }
+
+    function parseEval(uciLine) {
+      if (uciLine.includes('score mate')) {
+        const mate = parseInt(uciLine.split('score mate ')[1].split(' ')[0]);
+        return { type: 'mate', value: mate };
+      } else if (uciLine.includes('score cp')) {
+        const cp = parseInt(uciLine.split('score cp ')[1].split(' ')[0]);
+        return { type: 'cp', value: cp / 100 };
+      }
+      return { type: 'cp', value: 0 };
+    }
+
+    function updateEvalDisplay(evalObj) {
+      let text = '0.00';
+      let winPct = 50;
+      if (evalObj.type === 'cp') {
+        text = (evalObj.value > 0 ? '+' : '') + evalObj.value.toFixed(2);
+        // Winning probability formula
+        winPct = 50 + (2 / (1 + Math.exp(-0.004 * evalObj.value * 100)) - 1) * 50;
+      } else {
+        text = `M${evalObj.value}`;
+        winPct = evalObj.value > 0 ? 100 : 0;
+      }
+      $('#eval-fill').css('width', `${winPct}%`);
+      $('#eval-text').text(text);
+    }
+
+    // Board Integration
+    function onDragStart(source, piece) {
+      if (game.game_over() || currentTimelineIdx !== historyStack.length - 1) return false;
+      if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
+          (game.turn() === 'b' && piece.search(/^w/) !== -1) ||
+          (game.turn() !== playerColor)) {
+        return false;
+      }
+    }
+
+    function onDrop(source, target) {
+      clearArrows();
+      const move = game.move({ from: source, to: target, promotion: 'q' });
+      if (move === null) return 'snapback';
+
+      recordMove(move);
+      
+      // Request computer response
+      if (!game.game_over()) {
+        $('#status').text('Stockfish thinking...');
+        setTimeout(triggerEngineMove, 250);
+      } else {
+        updateGameStatus();
+      }
+    }
+
+    function makeMove(moveObj) {
+      const move = game.move(moveObj);
+      if (move) {
+        board.position(game.fen());
+        recordMove(move);
+        updateGameStatus();
+      }
+    }
+
+    function triggerEngineMove() {
+      engine.postMessage(`position fen ${game.fen()}`);
+      engine.postMessage('go depth 12');
+    }
+
+    function recordMove(move) {
+      currentTimelineIdx++;
+      historyStack = historyStack.slice(0, currentTimelineIdx);
+      historyStack.push({
+        move: move,
+        fen: game.fen(),
+        eval: null,
+        classification: null,
+        bestMove: null
+      });
+      renderHistoryUI();
+    }
+
+    function updateGameStatus() {
+      if (game.in_checkmate()) $('#status').text('Game Over: Checkmate');
+      else if (game.in_draw()) $('#status').text('Game Over: Draw');
+      else $('#status').text(`Turn: ${game.turn() === 'w' ? 'White' : 'Black'}`);
+    }
+
+    // Move Classification based on Centipawn Loss (Chess.com standards)
+    function classifyMove(prevEval, currEval, turn) {
+      let delta = (currEval - prevEval) * (turn === 'w' ? 1 : -1);
+      if (delta >= 0.2) return 'Brilliant';
+      if (delta >= 0.0) return 'Best';
+      if (delta >= -0.3) return 'Excellent';
+      if (delta >= -0.6) return 'Good';
+      if (delta >= -1.2) return 'Inaccuracy';
+      if (delta >= -2.5) return 'Mistake';
+      return 'Blunder';
+    }
+
+    function getBadgeClass(cls) {
+      switch(cls) {
+        case 'Brilliant': return 'badge-brilliant';
+        case 'Best': return 'badge-best';
+        case 'Excellent': return 'badge-excellent';
+        case 'Good': return 'badge-good';
+        case 'Inaccuracy': return 'badge-inaccuracy';
+        case 'Mistake': return 'badge-mistake';
+        case 'Blunder': return 'badge-blunder';
+        default: return 'badge-good';
+      }
+    }
+
+    // Post-Match Analysis Workflow
+    async function runPostMatchAnalysis() {
+      if (historyStack.length === 0) return;
+      isAnalyzing = true;
+      $('#status').text('Analyzing Match...');
+      $('#analysis-panel').show();
+
+      let tempGame = new Chess();
+      let prevEval = 0.2; // Starting balance evaluation
+
+      for (let i = 0; i < historyStack.length; i++) {
+        let item = historyStack[i];
+        let res = await evaluateFen(item.fen);
+        
+        item.eval = res.eval;
+        item.bestMove = res.bestMove;
+        
+        let currVal = res.eval.type === 'cp' ? res.eval.value : (res.eval.value > 0 ? 10 : -10);
+        item.classification = classifyMove(prevEval, currVal, item.move.color);
+        prevEval = currVal;
+      }
+
+      isAnalyzing = false;
+      $('#status').text('Analysis Complete');
+      renderHistoryUI();
+      jumpToTimeline(historyStack.length - 1);
+    }
+
+    function evaluateFen(fen) {
+      return new Promise(resolve => {
+        let bestMove = null;
+        let lastEval = { type: 'cp', value: 0 };
+        
+        const listener = (e) => {
+          const line = e.data;
+          if (line.includes('score cp') || line.includes('score mate')) {
+            lastEval = parseEval(line);
+          }
+          if (line.startsWith('bestmove')) {
+            bestMove = line.split(' ')[1];
+            engine.removeEventListener('message', listener);
+            engine.onmessage = handleEngineMessage;
+            resolve({ eval: lastEval, bestMove: bestMove });
+          }
+        };
+
+        engine.onmessage = listener;
+        engine.postMessage(`position fen ${fen}`);
+        engine.postMessage('go depth 14');
+      });
+    }
+
+    // UI & Timeline Management
+    function renderHistoryUI() {
+      const $container = $('#move-history').empty();
+      for (let i = 0; i < historyStack.length; i += 2) {
+        const moveNum = Math.floor(i / 2) + 1;
+        const whitePly = historyStack[i];
+        const blackPly = historyStack[i + 1];
+
+        let html = `<div class="move-row">
+          <div class="move-num">${moveNum}.</div>
+          <div class="move-ply ${currentTimelineIdx === i ? 'active' : ''}" onclick="jumpToTimeline(${i})">
+            <span>${whitePly.move.san}</span>
+            ${whitePly.classification ? `<span class="badge ${getBadgeClass(whitePly.classification)}">${whitePly.classification}</span>` : ''}
+          </div>`;
+
+        if (blackPly) {
+          html += `<div class="move-ply ${currentTimelineIdx === i + 1 ? 'active' : ''}" onclick="jumpToTimeline(${i + 1})">
+            <span>${blackPly.move.san}</span>
+            ${blackPly.classification ? `<span class="badge ${getBadgeClass(blackPly.classification)}">${blackPly.classification}</span>` : ''}
+          </div>`;
+        } else {
+          html += `<div class="move-ply"></div>`;
+        }
+        html += `</div>`;
+        $container.append(html);
+      }
+    }
+
+    function jumpToTimeline(idx) {
+      if (idx < -1 || idx >= historyStack.length) return;
+      currentTimelineIdx = idx;
+      clearArrows();
+
+      if (idx === -1) {
+        game.reset();
+        board.position(game.fen());
+        updateEvalDisplay({ type: 'cp', value: 0 });
+      } else {
+        const item = historyStack[idx];
+        game.load(item.fen);
+        board.position(game.fen());
+
+        if (item.eval) updateEvalDisplay(item.eval);
+        
+        if (item.classification) {
+          $('#analysis-text').html(`
+            <b>Move Played:</b> ${item.move.san} (${item.classification})<br/>
+            <b>Best Move:</b> ${item.bestMove || 'N/A'}
+          `);
+          
+          // Draw Move Comparison Arrows
+          if (item.bestMove) {
+            drawArrow(item.bestMove.substring(0, 2), item.bestMove.substring(2, 4), '#157811'); // Green = Best Move
+          }
+          drawArrow(item.move.from, item.move.to, '#d12323'); // Red = Played Move
+        }
+      }
+      renderHistoryUI();
+    }
+
+    // SVG Arrows Drawing System
+    function drawArrow(fromSq, toSq, color) {
+      const boardEl = $('#board');
+      const sqWidth = boardEl.width() / 8;
+      
+      const getCoords = (sq) => {
+        const file = sq.charCodeAt(0) - 97;
+        const rank = 8 - parseInt(sq[1]);
+        const isFlipped = board.orientation() === 'black';
+        const col = isFlipped ? 7 - file : file;
+        const row = isFlipped ? 7 - rank : rank;
+        return {
+          x: col * sqWidth + sqWidth / 2,
+          y: row * sqWidth + sqWidth / 2
+        };
+      };
+
+      const p1 = getCoords(fromSq);
+      const p2 = getCoords(toSq);
+      const svg = document.getElementById('svg-overlay');
+
+      const markerId = `arrow-${color.replace('#','')}`;
+      if (!document.getElementById(markerId)) {
+        const defs = svg.querySelector('defs') || createSvgElement('defs', svg);
+        const marker = createSvgElement('marker', defs, {
+          id: markerId, viewBox: '0 0 10 10', refX: '6', refY: '5',
+          markerWidth: '6', markerHeight: '6', orient: 'auto-start-reverse'
+        });
+        createSvgElement('path', marker, { d: 'M 0 0 L 10 5 L 0 10 z', fill: color });
+      }
+
+      createSvgElement('line', svg, {
+        x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
+        stroke: color, 'stroke-width': '6', 'marker-end': `url(#${markerId})`, 'stroke-linecap': 'round', opacity: '0.85'
+      });
+    }
+
+    function createSvgElement(tag, parent, attrs = {}) {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (let k in attrs) el.setAttribute(k, attrs[k]);
+      parent.appendChild(el);
+      return el;
+    }
+
+    function clearArrows() {
+      $('#svg-overlay').empty();
+    }
+
+    // Bind Controls & Setup
+    $(document).ready(() => {
+      board = Chessboard('board', {
+        draggable: true,
+        position: 'start',
+        onDragStart: onDragStart,
+        onDrop: onDrop,
+        onSnapEnd: () => board.position(game.fen())
+      });
+
+      initEngine();
+
+      $('#btn-new-game').click(() => {
+        game.reset();
+        board.position('start');
+        historyStack = [];
+        currentTimelineIdx = -1;
+        playerColor = $('#player-color').val();
+        board.orientation(playerColor === 'w' ? 'white' : 'black');
+        setEngineSkill($('#engine-level').val());
+        $('#analysis-panel').hide();
+        clearArrows();
+        renderHistoryUI();
+        updateGameStatus();
+
+        if (playerColor === 'b') triggerEngineMove();
+      });
+
+      $('#btn-analyze').click(runPostMatchAnalysis);
+      $('#btn-first').click(() => jumpToTimeline(-1));
+      $('#btn-prev').click(() => jumpToTimeline(currentTimelineIdx - 1));
+      $('#btn-next').click(() => jumpToTimeline(currentTimelineIdx + 1));
+      $('#btn-last').click(() => jumpToTimeline(historyStack.length - 1));
+      
+      $('#engine-level').change(e => setEngineSkill(e.target.value));
+    });
+  </script>
+</body>
+</html>
