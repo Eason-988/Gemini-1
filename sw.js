@@ -1,10 +1,10 @@
-const CACHE_NAME = 'stockfish-gui-v1';
+const CACHE_NAME = 'stockfish-gui-v2';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './stockfish-18-single-lite.js',
-  './stockfish-18-single-lite.wasm',
+  './stockfish-18-lite-single.js',
+  './stockfish-18-lite-single.wasm',
   'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css',
   'https://code.jquery.com/jquery-3.6.0.min.js',
   'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js',
