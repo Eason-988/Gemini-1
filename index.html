@@ -61,7 +61,7 @@
 
   <header>
     <h2>Stockfish 18 Web GUI</h2>
-    <div id="status">Status: Ready</div>
+    <div id="status">Status: Loading engine...</div>
   </header>
 
   <div class="main-container">
@@ -134,35 +134,48 @@
     let board = null;
     let game = new Chess();
     let engine = null;
-    let historyStack = []; // Stores move history + evaluations
+    let historyStack = [];
     let currentTimelineIdx = -1;
     let isAnalyzing = false;
     let playerColor = 'w';
 
-    // Init Engine Web Worker
-    function initEngine() {
-      // Points directly to stockfish-18-single-lite JS wrapper
-      engine = new Worker('stockfish-18-single-lite.js');
-      engine.onmessage = handleEngineMessage;
-      engine.postMessage('uci');
-      engine.postMessage('isready');
+    // Safe Engine Initialization
+    async function initEngine() {
+      try {
+        const response = await fetch('./stockfish-18-lite-single.js');
+        if (!response.ok) {
+          throw new Error(`Failed to load engine script. Status: ${response.status}`);
+        }
+        const scriptText = await response.text();
+        const blob = new Blob([scriptText], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(blob);
+
+        engine = new Worker(workerUrl);
+        engine.onmessage = handleEngineMessage;
+        engine.postMessage('uci');
+        engine.postMessage('isready');
+        $('#status').text('Status: Ready');
+      } catch (err) {
+        console.error('Engine initialization failed:', err);
+        $('#status').text('Error: Could not load Stockfish files.');
+      }
     }
 
     function setEngineSkill(skillLevel) {
-      engine.postMessage(`setoption name Skill Level value ${skillLevel}`);
+      if (engine) {
+        engine.postMessage(`setoption name Skill Level value ${skillLevel}`);
+      }
     }
 
     // UCI Message Handler
     function handleEngineMessage(event) {
       const line = event.data;
 
-      // Extract evaluation score
       if (line.includes('score cp') || line.includes('score mate')) {
         let evalVal = parseEval(line);
         updateEvalDisplay(evalVal);
       }
 
-      // Handle Best Move command from engine play
       if (line.startsWith('bestmove') && !isAnalyzing) {
         const moveStr = line.split(' ')[1];
         if (moveStr && moveStr !== '(none)') {
@@ -191,7 +204,6 @@
       let winPct = 50;
       if (evalObj.type === 'cp') {
         text = (evalObj.value > 0 ? '+' : '') + evalObj.value.toFixed(2);
-        // Winning probability formula
         winPct = 50 + (2 / (1 + Math.exp(-0.004 * evalObj.value * 100)) - 1) * 50;
       } else {
         text = `M${evalObj.value}`;
@@ -218,7 +230,6 @@
 
       recordMove(move);
       
-      // Request computer response
       if (!game.game_over()) {
         $('#status').text('Stockfish thinking...');
         setTimeout(triggerEngineMove, 250);
@@ -237,6 +248,7 @@
     }
 
     function triggerEngineMove() {
+      if (!engine) return;
       engine.postMessage(`position fen ${game.fen()}`);
       engine.postMessage('go depth 12');
     }
@@ -260,7 +272,7 @@
       else $('#status').text(`Turn: ${game.turn() === 'w' ? 'White' : 'Black'}`);
     }
 
-    // Move Classification based on Centipawn Loss (Chess.com standards)
+    // Move Classification
     function classifyMove(prevEval, currEval, turn) {
       let delta = (currEval - prevEval) * (turn === 'w' ? 1 : -1);
       if (delta >= 0.2) return 'Brilliant';
@@ -287,13 +299,12 @@
 
     // Post-Match Analysis Workflow
     async function runPostMatchAnalysis() {
-      if (historyStack.length === 0) return;
+      if (historyStack.length === 0 || !engine) return;
       isAnalyzing = true;
       $('#status').text('Analyzing Match...');
       $('#analysis-panel').show();
 
-      let tempGame = new Chess();
-      let prevEval = 0.2; // Starting balance evaluation
+      let prevEval = 0.2;
 
       for (let i = 0; i < historyStack.length; i++) {
         let item = historyStack[i];
@@ -387,17 +398,16 @@
             <b>Best Move:</b> ${item.bestMove || 'N/A'}
           `);
           
-          // Draw Move Comparison Arrows
           if (item.bestMove) {
-            drawArrow(item.bestMove.substring(0, 2), item.bestMove.substring(2, 4), '#157811'); // Green = Best Move
+            drawArrow(item.bestMove.substring(0, 2), item.bestMove.substring(2, 4), '#157811');
           }
-          drawArrow(item.move.from, item.move.to, '#d12323'); // Red = Played Move
+          drawArrow(item.move.from, item.move.to, '#d12323');
         }
       }
       renderHistoryUI();
     }
 
-    // SVG Arrows Drawing System
+    // SVG Arrows Drawing
     function drawArrow(fromSq, toSq, color) {
       const boardEl = $('#board');
       const sqWidth = boardEl.width() / 8;
@@ -445,7 +455,7 @@
       $('#svg-overlay').empty();
     }
 
-    // Bind Controls & Setup
+    // Bind Controls
     $(document).ready(() => {
       board = Chessboard('board', {
         draggable: true,
